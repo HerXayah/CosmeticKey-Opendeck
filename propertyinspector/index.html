@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<script>
+			let update = () => {};
+
+			function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegisterEvent, inInfo, inActionInfo) {
+				const websocket = new WebSocket("ws://localhost:" + inPort);
+				inActionInfo = JSON.parse(inActionInfo);
+				websocket.onopen = () => {
+					websocket.send(JSON.stringify({
+						event: inRegisterEvent,
+						uuid: inPropertyInspectorUUID,
+					}));
+				};
+
+				const imageFile = document.getElementById("imageFile");
+				const imagePreview = document.getElementById("imagePreview");
+				
+				// Load existing image if any
+				if (inActionInfo.payload.settings.image_data) {
+					const existingData = inActionInfo.payload.settings.image_data;
+					imagePreview.src = existingData;
+					imagePreview.style.display = "block";
+				}
+
+				// Handle file upload
+				imageFile.addEventListener("change", function(e) {
+					const file = e.target.files[0];
+					if (file) {
+						const reader = new FileReader();
+						reader.onload = function(event) {
+							const imageData = event.target.result;
+							
+							// Show preview (animated if GIF)
+							imagePreview.src = imageData;
+							imagePreview.style.display = "block";
+							
+							// Send data to plugin
+							websocket.send(JSON.stringify({
+								event: "setSettings",
+								context: inActionInfo.context,
+								payload: {
+									image_data: imageData,
+								},
+							}));
+						};
+						reader.readAsDataURL(file);
+					}
+				});
+
+				update = () => {
+					// No need for explicit update, handled by file input
+				};
+			}
+		</script>
+		<link rel="stylesheet" href="sdpi.css" />
+		<style>
+			.preview-container {
+				margin-top: 10px;
+				text-align: center;
+				pointer-events: none;
+				user-select: none;
+			}
+			.current-image {
+				width: 200px;
+				height: 200px;
+				border: 1px solid #5a5a5a;
+				border-radius: 3px;
+				display: none;
+				object-fit: cover;
+				pointer-events: none;
+				user-select: none;
+				-webkit-user-select: none;
+				-moz-user-select: none;
+				-ms-user-select: none;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="sdpi-item">
+			<div class="sdpi-item-label">Image/GIF</div>
+			<input type="file" id="imageFile" accept="image/*,.gif" class="sdpi-item-value" />
+			<div class="preview-container">
+				<img id="imagePreview" class="current-image" />
+			</div>
+		</div>
+	</body>
+</html>

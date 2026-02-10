@@ -1,0 +1,51 @@
+{
+	"Actions": [
+		{
+			"Icon": "actionIcon", 
+			"Name": "Cosmetic Key", 
+			"States": [
+				{
+					"Image": "pluginIcon",
+					"TitleAlignment": "middle", 
+					"FontSize": "16"
+				}
+			], 
+			"SupportedInMultiActions": false,
+			"Tooltip": "A key with no actions. Use to display images gifs, and/or text.", 
+			"UUID": "me.miella.selene.action",
+			"PropertyInspectorPath": "propertyinspector/index.html"
+		}
+	], 
+	"SDKVersion": 2,
+	"Author": "miellabun",
+	"CodePaths": {
+		"x86_64-pc-windows-msvc": "x86_64-pc-windows-msvc/bin/opendeck-cosmetickey.exe",
+		"x86_64-apple-darwin": "x86_64-apple-darwin/bin/opendeck-cosmetickey",
+		"aarch64-apple-darwin": "aarch64-apple-darwin/bin/opendeck-cosmetickey",
+		"x86_64-unknown-linux-gnu": "x86_64-unknown-linux-gnu/bin/opendeck-cosmetickey",
+		"aarch64-unknown-linux-gnu": "aarch64-unknown-linux-gnu/bin/opendeck-cosmetickey"
+	},
+	"Description": "A functionless key to display images, gifs, and/or text.",
+	"Category": "Cosmetic Key",
+	"CategoryIcon": "categoryIcon",
+	"Name": "Cosmetic Key",
+	"Icon": "pluginIcon",
+	"URL": "https://linktr.ee/Nettai",
+	"Version": "1.0.0",
+	"OS": [
+		{
+			"Platform": "mac",
+			"MinimumVersion": "10.11"
+		},
+		{
+			"Platform": "windows",
+			"MinimumVersion": "10"
+		},
+		{
+			"Platform": "linux"
+		}
+	],
+	"Software": {
+		"MinimumVersion": "5.0"
+	}
+}
