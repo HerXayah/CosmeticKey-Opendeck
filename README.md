@@ -3,4 +3,4 @@ I desperatly needed my CosmeticKeys working for Linux, hence i HAD to AI this bi
 
 Whatever. idk if it works, just compile it and put it into 
 
-``/home/$USER/.config/opendeck/plugins/*folder here*
+``/home/$USER/.config/opendeck/plugins/*folder here*``

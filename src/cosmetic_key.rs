@@ -32,18 +32,11 @@ impl Action for CosmeticKeyAction {
 		settings: &Self::Settings,
 	) -> OpenActionResult<()> {
 		let instance_id = instance.instance_id.clone();
-		log::info!("will_appear called for instance {}", instance_id);
+		log::debug!("will_appear called for instance {}", instance_id);
 		
 		if let Some(image_data) = &settings.image_data {
 			if is_gif(image_data) {
-				log::info!("Starting GIF animation for instance {}", instance_id);
-				
-				// Stop any existing animation
 				stop_animation(&instance_id).await;
-				
-				// Small delay to ensure cleanup completes
-				tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-				
 				start_animation(instance_id, image_data.clone()).await?;
 			} else if let Ok(processed) = process_image(image_data) {
 				instance.set_image(Some(processed), None).await?;
@@ -57,7 +50,7 @@ impl Action for CosmeticKeyAction {
 		instance: &Instance,
 		_settings: &Self::Settings,
 	) -> OpenActionResult<()> {
-		log::info!("will_disappear called for instance {}", instance.instance_id);
+		log::debug!("will_disappear called for instance {}", instance.instance_id);
 		let instance_id = instance.instance_id.clone();
 		stop_animation(&instance_id).await;
 		Ok(())
@@ -69,16 +62,12 @@ impl Action for CosmeticKeyAction {
 		settings: &Self::Settings,
 	) -> OpenActionResult<()> {
 		let instance_id = instance.instance_id.clone();
-		log::info!("did_receive_settings called for instance {}", instance_id);
+		log::debug!("did_receive_settings called for instance {}", instance_id);
 		
 		stop_animation(&instance_id).await;
 		
-		// Small delay to ensure cleanup completes
-		tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-		
 		if let Some(image_data) = &settings.image_data {
 			if is_gif(image_data) {
-				log::info!("Starting GIF animation after settings change for instance {}", instance_id);
 				start_animation(instance_id, image_data.clone()).await?;
 			} else if let Ok(processed) = process_image(image_data) {
 				instance.set_image(Some(processed), None).await?;
@@ -99,9 +88,20 @@ async fn stop_animation(instance_id: &str) {
 	}
 }
 
+async fn retry_get_instance(instance_id: String, max_attempts: u32, delay_ms: u64) -> Option<Arc<Instance>> {
+	for attempt in 0..max_attempts {
+		if let Some(instance) = get_instance(instance_id.clone()).await {
+			if attempt > 0 {
+				log::debug!("Got instance {} after {} attempts", instance_id, attempt + 1);
+			}
+			return Some(instance);
+		}
+		tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+	}
+	None
+}
+
 async fn start_animation(instance_id: String, image_data: String) -> OpenActionResult<()> {
-	log::info!("start_animation called for instance {}", instance_id);
-	
 	let frames = match tokio::task::spawn_blocking(move || prepare_gif_frames(&image_data)).await {
 		Ok(Ok(frames)) => frames,
 		_ => {
@@ -115,30 +115,18 @@ async fn start_animation(instance_id: String, image_data: String) -> OpenActionR
 		return Ok(());
 	}
 	
-	log::info!("Prepared {} frames for instance {}", frames.len(), instance_id);
-	
 	let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
 	
 	let instance_id_for_task = instance_id.clone();
 	let animations_ref = ANIMATIONS.clone();
 	
 	tokio::spawn(async move {
-		// Try to get instance with retries for startup
-		let mut cached_instance = None;
-		for attempt in 0..30 {
-			cached_instance = get_instance(instance_id_for_task.clone()).await;
-			if cached_instance.is_some() {
-				log::info!("Animation started for instance {} after {} attempts", instance_id_for_task, attempt + 1);
-				break;
-			}
-			tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-		}
-		
-		if cached_instance.is_none() {
-			log::warn!("Failed to get instance {} for animation after 30 attempts", instance_id_for_task);
+		// Try to get instance with retries (15 attempts × 100ms = 1.5s max)
+		let Some(mut cached_instance) = retry_get_instance(instance_id_for_task.clone(), 15, 100).await else {
+			log::warn!("Failed to get instance {} for animation", instance_id_for_task);
 			animations_ref.write().await.remove(&instance_id_for_task);
 			return;
-		}
+		};
 		
 		// Pre-calculate cumulative timing for each frame
 		let mut frame_timings = Vec::with_capacity(frames.len());
@@ -167,21 +155,15 @@ async fn start_animation(instance_id: String, image_data: String) -> OpenActionR
 			let (frame_data, _) = &frames[frame_index];
 			
 			// Display the frame
-			if let Some(ref instance) = cached_instance {
-				if let Err(e) = instance.set_image(Some(frame_data.clone()), None).await {
-					log::warn!("Failed to set image for instance {}: {:?}", instance_id_for_task, e);
-					// If image setting fails, try once more with fresh instance
-					if let Some(new_instance) = get_instance(instance_id_for_task.clone()).await {
-						cached_instance = Some(new_instance);
-						// Don't retry the frame, just continue - the next loop will catch up
-					} else {
-						log::error!("Lost instance {}, stopping animation", instance_id_for_task);
-						break;
-					}
+			if let Err(e) = cached_instance.set_image(Some(frame_data.clone()), None).await {
+				log::warn!("Failed to set image for instance {}: {:?}", instance_id_for_task, e);
+				// If image setting fails, try to get fresh instance
+				if let Some(new_instance) = get_instance(instance_id_for_task.clone()).await {
+					cached_instance = new_instance;
+				} else {
+					log::error!("Lost instance {}, stopping animation", instance_id_for_task);
+					break;
 				}
-			} else {
-				log::error!("No instance available for {}, stopping animation", instance_id_for_task);
-				break;
 			}
 			
 			// Calculate when the next frame should appear
@@ -196,18 +178,16 @@ async fn start_animation(instance_id: String, image_data: String) -> OpenActionR
 			tokio::select! {
 				_ = tokio::time::sleep(wait_duration) => {},
 				_ = &mut stop_rx => {
-					log::info!("Animation stopped for instance {} by signal", instance_id_for_task);
+					log::debug!("Animation stopped for instance {}", instance_id_for_task);
 					break;
 				}
 			}
 		}
 		
-		log::info!("Animation loop ended for instance {}", instance_id_for_task);
 		animations_ref.write().await.remove(&instance_id_for_task);
 	});
 	
-	ANIMATIONS.write().await.insert(instance_id.clone(), stop_tx);
-	log::info!("Animation registered and task spawned for instance {}", instance_id);
+	ANIMATIONS.write().await.insert(instance_id, stop_tx);
 	Ok(())
 }
 
